@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import Anthropic from '@anthropic-ai/sdk'
+import { Resend } from 'resend'
 import 'dotenv/config'
 
 const app = express()
@@ -29,6 +30,9 @@ app.use(express.json({ limit: '16kb' }))
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
+
+// --- Resend client ---
+const resend = new Resend(process.env.RESEND_API_KEY)
 
 // --- System prompts ---
 const SYSTEM_PROMPT_ZH = `你是 Golden Mountain（金山網頁設計）的專業客服助理。
@@ -98,6 +102,30 @@ app.post('/api/chat', async (req, res) => {
       ? 'Rate limit reached, please try again shortly.'
       : 'An error occurred while contacting the AI. Please try again.'
     return res.status(status).json({ error: message })
+  }
+})
+
+// --- POST /api/contact ---
+app.post('/api/contact', async (req, res) => {
+  const { name, email, message } = req.body
+
+  if (!name?.trim() || !email?.trim() || !message?.trim())
+    return res.status(400).json({ error: 'All fields are required.' })
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    return res.status(400).json({ error: 'Invalid email address.' })
+
+  try {
+    await resend.emails.send({
+      from: process.env.FROM_EMAIL,
+      to: process.env.TO_EMAIL,
+      replyTo: email,
+      subject: `[Golden Mountain] New inquiry from ${name}`,
+      text: `Name: ${name}\nEmail: ${email}\n\n${message}`,
+    })
+    return res.json({ ok: true })
+  } catch (err) {
+    console.error('Resend error:', err)
+    return res.status(500).json({ error: 'Failed to send email.' })
   }
 })
 
